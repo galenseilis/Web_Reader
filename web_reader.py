@@ -8,6 +8,7 @@ from collections import Counter
 from numpy.random import choice
 import numpy as np
 from warnings import warn
+from glob import glob
 
 #TODO: Compare to https://en.wikipedia.org/wiki/Inverse_distribution
 def count_pmf(counts, inverse=False):
@@ -165,7 +166,7 @@ class Table:
         self.table.to_csv(self.file, index=False)
 
     def uniquify_table(self):
-        self.table = pd.unique(self.table)
+        self.table = self.table.drop_duplicates()
 
 class DataBase:
 
@@ -199,20 +200,20 @@ class DataBase:
                 page = Page(url)
                 page.easy_links()
                 for link in page.links:
-                    print((i+1) / len(url_queries) * 100, url, link)
+                    print(time.ctime(), (i+1) / len(url_queries) * 100, url, link)
                     self.relation_dict[url] = link
             except Exception as e:
-                print(url, e)
+                print(time.ctime(), url, e)
             time.sleep(3)
 
     def reldict_to_table(self):
         self.relation_table.table = pd.DataFrame({'Parent':list(self.relation_dict.keys()),
                                                   'Child':list(self.relation_dict.values())})
 
-    def add_link(self, url, read):
+    def add_link(self, url):
         if url not in set(self.read_table.table['URL']):
             self.read_table.table = self.read_table.table.append(pd.DataFrame({'URL':[url],
-                                                                               'Read':[read]}))
+                                                                               'Read':[1]}))
         else:
             raise Exception('{} is already in read table.'.format(url))
 
@@ -232,6 +233,7 @@ class DataBase:
             core_link_set.update({link.split('/')[2]})
         return core_link_set
 
+    # TODO: Change or delete this method
     def envelope_site(self, url, limit_str):
         site_links = set()
         site_q = [url]
@@ -263,9 +265,9 @@ class DataBase:
         RETURNS:
             (str)
         '''
-        return choice(list(self.read_table.table[self.read_table.table['Read'] == 0]['URL']))
+        return choice(list(set(self.relation_table.table['Child'])))
 
-    def connectivity_weights(self, query=''):
+    def connectivity_weights(self):
         '''
         This method calculates weights for each node that are a
         polynomial function of the number of other nodes pointing to
@@ -275,8 +277,8 @@ class DataBase:
         PARAMETERS:
             query (str): Only URLs that contain this string will be considered.
         '''
-        search_df = self.read_table.table[self.read_table.table['URL'].str.contains(query)]
-        search_set = set(search_df[search_df['Read'] == 0]['URL'])
+        read_links = set(self.read_table.table['URL'])
+        search_set = set(self.relation_table.table['Child']) - read_links
         if search_set:
             counts = Counter()
             for link in search_set:
@@ -292,24 +294,21 @@ class DataBase:
             return None
         return counts
 
-    def recommend_max_centrality(self, query='', top_n=1):
-        counts = self.connectivity_weights(query=query)
-        return counts.most_common()[0:top_n]
+    def recommend_max_centrality(self, top_n=1):
+        counts = self.connectivity_weights()
+        return counts.most_common()[:top_n]
 
-    def recommend_pmf_centrality(self, query=''):
-        counts = self.connectivity_weights(query=query)
+    def recommend_pmf_centrality(self):
+        counts = self.connectivity_weights()
         pmf = count_pmf(counts)
         rand_link = choice(pmf[0], p=pmf[1])
         return rand_link, counts[rand_link]
 
-#TODO: Load DBs method
-#TODO: Find local DBs method
-#TODO: Save DBs method
-#TODO: Consistency check among DBs
-class DBManager:
-
-    def __init__(self):
-        pass
-
 if __name__ == '__main__':
-    pass
+    DB = DataBase('all_read.csv', 'all_relations.csv')
+##    DB.get_relation_dict()
+##    DB.reldict_to_table()
+##    DB.save_dbs()
+    print('Max:', DB.recommend_max_centrality())
+    print('PMF:', DB.recommend_pmf_centrality())
+    print('Random:', DB.recommend_random())
